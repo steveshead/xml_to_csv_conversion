@@ -4,10 +4,10 @@
  * into its own CSV file (one CSV per distinct record tag, since different
  * record types typically have different field sets).
  *
- * "Record elements" are auto-detected: a tag qualifies if it occurs more
- * than once in the document and none of its own direct child tags also
- * repeat (so the innermost repeating element wins over any repeating
- * container around it, e.g. <loan> wins over <loans>).
+ * "Record elements" are auto-detected: a tag qualifies if some single parent
+ * element contains two or more of it as direct children (e.g. <item> repeated
+ * inside one <items>). When repeating tags are nested, only the innermost
+ * level is used: a repeating container around other records is ignored.
  *
  * Usage:
  *   php xml_to_csv_conversion.php                   # convert every *.xml next to this script
@@ -125,13 +125,18 @@ function convertXmlToCsv(string $inputPath, string $outputDir): void
 /**
  * Lightweight structural pass: a tag is a "record" if some single instance
  * of its parent contains two or more of it as a direct-child sibling (e.g.
- * <share> under one <shares>). Matching by sibling repetition, rather than
+ * <item> under one <items>). Matching by sibling repetition, rather than
  * by raw document-wide tag counts, avoids false positives from leaf field
  * names (like <id>) that happen to recur across different record types.
+ *
+ * Only the innermost repeating level is kept: a candidate that contains
+ * another candidate anywhere beneath it is dropped, since converting it
+ * would consume the inner records and leave their CSV empty.
  */
 function detectRecordTags(string $inputPath): array
 {
     $recordTags = [];
+    $descendantsOf = [];
     $stack = [];
 
     $reader = new XMLReader();
@@ -144,10 +149,13 @@ function detectRecordTags(string $inputPath): array
             if (!empty($stack)) {
                 $top = count($stack) - 1;
                 $stack[$top]['childCounts'][$name] = ($stack[$top]['childCounts'][$name] ?? 0) + 1;
+                if ($reader->isEmptyElement) {
+                    $stack[$top]['descendants'][$name] = true;
+                }
             }
 
             if (!$reader->isEmptyElement) {
-                $stack[] = ['childCounts' => []];
+                $stack[] = ['name' => $name, 'childCounts' => [], 'descendants' => []];
             }
         } elseif ($reader->nodeType === XMLReader::END_ELEMENT) {
             $frame = array_pop($stack);
@@ -156,9 +164,27 @@ function detectRecordTags(string $inputPath): array
                     $recordTags[$childTag] = true;
                 }
             }
+
+            // Remember every tag name seen beneath this tag, and pass this
+            // subtree's names up to the parent.
+            $descendantsOf[$frame['name']] = ($descendantsOf[$frame['name']] ?? []) + $frame['descendants'];
+            if (!empty($stack)) {
+                $top = count($stack) - 1;
+                $stack[$top]['descendants'] += $frame['descendants'] + [$frame['name'] => true];
+            }
         }
     }
     $reader->close();
+
+    foreach (array_keys($recordTags) as $tag) {
+        // A tag nested inside itself doesn't count as containing another
+        // record type.
+        $nested = array_intersect_key($descendantsOf[$tag] ?? [], $recordTags);
+        unset($nested[$tag]);
+        if (!empty($nested)) {
+            unset($recordTags[$tag]);
+        }
+    }
 
     return array_keys($recordTags);
 }
