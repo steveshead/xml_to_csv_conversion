@@ -76,6 +76,8 @@ Ben,2025-07-19
   joined into the value of the direct child that contains it.
 - If a record contains the same child tag more than once, the values are
   joined together in a single cell.
+- If a record tag is nested inside itself, only the innermost elements become
+  rows. Fields that belong to the outer elements are not exported.
 
 ## License
 

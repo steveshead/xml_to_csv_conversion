@@ -61,20 +61,11 @@ function convertXmlToCsv(string $inputPath, string $outputDir): void
     // individual records omit optional fields.
     $fields = array_fill_keys($recordTags, []);
 
-    $reader = new XMLReader();
-    $reader->open($inputPath);
-
-    while ($reader->read()) {
-        if ($reader->nodeType !== XMLReader::ELEMENT || !isset($fields[$reader->name])) {
-            continue;
-        }
-        $tag = $reader->name;
-        $record = parseRecord($reader);
+    streamRecords($inputPath, $recordTags, function (string $tag, array $record) use (&$fields): void {
         foreach (array_keys($record) as $field) {
             $fields[$tag][$field] = true;
         }
-    }
-    $reader->close();
+    });
 
     foreach ($fields as $tag => $fieldSet) {
         $fields[$tag] = array_keys($fieldSet);
@@ -95,23 +86,14 @@ function convertXmlToCsv(string $inputPath, string $outputDir): void
 
     $counts = array_fill_keys($recordTags, 0);
 
-    $reader = new XMLReader();
-    $reader->open($inputPath);
-
-    while ($reader->read()) {
-        if ($reader->nodeType !== XMLReader::ELEMENT || !isset($handles[$reader->name])) {
-            continue;
-        }
-        $tag = $reader->name;
-        $record = parseRecord($reader);
+    streamRecords($inputPath, $recordTags, function (string $tag, array $record) use ($fields, $handles, &$counts): void {
         $row = [];
         foreach ($fields[$tag] as $field) {
             $row[] = $record[$field] ?? '';
         }
         fputcsv($handles[$tag], $row, ',', '"', '\\');
         $counts[$tag]++;
-    }
-    $reader->close();
+    });
 
     foreach ($handles as $fh) {
         fclose($fh);
@@ -190,33 +172,55 @@ function detectRecordTags(string $inputPath): array
 }
 
 /**
- * Reads the element the reader is currently positioned on and returns its
- * direct child elements as a flat [name => text] map. Advances the reader
- * past the element's end tag.
+ * Streams the file and calls $onRecord($tag, $fields) for each record
+ * element, where $fields is its direct child elements as a flat
+ * [name => text] map. A record that contains another record element (a tag
+ * nested inside itself) is skipped, so only the innermost level is reported.
  */
-function parseRecord(XMLReader $reader): array
+function streamRecords(string $inputPath, array $recordTags, callable $onRecord): void
 {
-    $record = [];
-    $depth = $reader->depth;
+    $isRecord = array_fill_keys($recordTags, true);
+    $frames = [];
 
-    if ($reader->isEmptyElement) {
-        return $record;
-    }
+    $reader = new XMLReader();
+    $reader->open($inputPath);
 
-    $currentField = null;
     while ($reader->read()) {
-        if ($reader->nodeType === XMLReader::END_ELEMENT && $reader->depth === $depth) {
-            break;
-        }
-        if ($reader->nodeType === XMLReader::ELEMENT && $reader->depth === $depth + 1) {
-            $currentField = $reader->name;
-            $record[$currentField] = $record[$currentField] ?? '';
+        $top = count($frames) - 1;
+
+        if ($reader->nodeType === XMLReader::ELEMENT) {
+            $name = $reader->name;
+
+            if (isset($isRecord[$name])) {
+                if ($top >= 0) {
+                    $frames[$top]['hasNestedRecord'] = true;
+                }
+                if ($reader->isEmptyElement) {
+                    $onRecord($name, []);
+                } else {
+                    $frames[] = [
+                        'tag' => $name,
+                        'depth' => $reader->depth,
+                        'fields' => [],
+                        'currentField' => null,
+                        'hasNestedRecord' => false,
+                    ];
+                }
+            } elseif ($top >= 0 && $reader->depth === $frames[$top]['depth'] + 1) {
+                $frames[$top]['currentField'] = $name;
+                $frames[$top]['fields'][$name] = $frames[$top]['fields'][$name] ?? '';
+            }
         } elseif ($reader->nodeType === XMLReader::TEXT || $reader->nodeType === XMLReader::CDATA) {
-            if ($currentField !== null) {
-                $record[$currentField] .= $reader->value;
+            if ($top >= 0 && $frames[$top]['currentField'] !== null) {
+                $frames[$top]['fields'][$frames[$top]['currentField']] .= $reader->value;
+            }
+        } elseif ($reader->nodeType === XMLReader::END_ELEMENT
+            && $top >= 0 && $reader->depth === $frames[$top]['depth']) {
+            $frame = array_pop($frames);
+            if (!$frame['hasNestedRecord']) {
+                $onRecord($frame['tag'], $frame['fields']);
             }
         }
     }
-
-    return $record;
+    $reader->close();
 }
