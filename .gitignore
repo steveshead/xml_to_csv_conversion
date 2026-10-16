@@ -1,0 +1,12 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.idea/
+.vscode/
+
+# Input data and generated output (the script reads *.xml next to itself
+# by default and writes CSVs alongside them)
+*.xml
+*.csv
