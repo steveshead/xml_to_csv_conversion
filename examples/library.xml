@@ -1,0 +1,10 @@
+<library>
+  <books>
+    <book><title>Dune</title><author>Frank Herbert</author><year>1965</year></book>
+    <book><title>Emma</title><author>Jane Austen</author></book>
+  </books>
+  <members>
+    <member><name>Ana</name><joined>2024-03-01</joined></member>
+    <member><name>Ben</name><joined>2025-07-19</joined></member>
+  </members>
+</library>

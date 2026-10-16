@@ -10,3 +10,4 @@ Thumbs.db
 # by default and writes CSVs alongside them)
 *.xml
 *.csv
+!examples/*.xml

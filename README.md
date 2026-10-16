@@ -24,7 +24,7 @@ overwritten.
 
 ## Example
 
-Given `library.xml`:
+Given [`examples/library.xml`](examples/library.xml):
 
 ```xml
 <library>
@@ -39,7 +39,8 @@ Given `library.xml`:
 </library>
 ```
 
-the script writes two files.
+running `php xml_to_csv_conversion.php examples/library.xml` writes two files
+to `examples/`.
 
 `library.book.csv`:
 
